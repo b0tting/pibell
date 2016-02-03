@@ -9,6 +9,7 @@ from logging import handlers
 import pytz
 import random
 import sqlite3
+from classes.qhue import Bridge
 ## echo -e "connect A0:E9:DB:33:CA:82\nexit" | bluetoothctl
 
 ## some setup code
@@ -29,9 +30,10 @@ local_tz = pytz.timezone('Europe/Amsterdam')
 sounddir = "./sounds/"
 webserverdebug = False
 
-## Mapping IP addresses to phone numbers
-phone_map = {'192.168.51.21':'0624643120'}
-
+## Philips HUE config
+hueuser = "password"
+hueip = "192.168.51.7"
+huelamps = [8,12]
 
 pygame.mixer.init()
 app = Flask(__name__)
@@ -90,21 +92,32 @@ def play_random_sound():
     else:
         logger.error("Could not find any music file in the " + sounddir + " directory.")
 
+def go_ding():
+    logger.warning('The bell is ringing!')
+    insert_bell_moment(int(time.time()))
+    play_random_sound()
+    for light in huelamps:
+        b.lights[light].state(alert="lselect")
+        time.sleep(0.5)
+    while(pygame.mixer.music.get_busy()):
+        time.sleep(1)
+    for light in huelamps:
+        b.lights[light].state(alert="none")
+        time.sleep(0.5)
+    logger.debug("Done playing tune")
+    return True
+
 def ButtonListener():
     while True:
         GPIO.wait_for_edge(18, GPIO.FALLING)
         input_state = GPIO.input(18)
         if input_state == False:
-            logger.warning('The bell is ringing!')
-            insert_bell_moment(int(time.time()))
-            play_random_sound()
-            while(pygame.mixer.music.get_busy()):
-                time.sleep(1)
-            logger.debug("Done playing tune")
+            go_ding();
+
 
 @app.route('/test')
 def start_now():
-    play_random_sound()
+    go_ding()
     return '{"test": "ok"}'
 
 @app.route('/')
@@ -121,6 +134,8 @@ def show_all():
 ButtonThread = Thread(target = ButtonListener)
 ButtonThread.daemon = True
 ButtonThread.start()
+
+b = Bridge(hueip, hueuser)
 
 logger.info("Starting Webserver")
 app.config['PROPAGATE_EXCEPTIONS'] = True
