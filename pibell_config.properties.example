@@ -1,0 +1,25 @@
+## What pin to use
+pibell_pin = 18
+
+## Where to log messages
+logfile = '/var/log/pibell'
+
+## We create a small database for storing logs here
+dbfile = 'pibell.sql3'
+
+## PYTZ compatible timezone name
+pytz_timezone = 'Europe/Amsterdam'
+
+## We only like OGG, WAV or MP3 files. In the following directory
+sounddir = "./sounds/"
+
+## Use debug if you want easy editing
+webserverdebug = False
+
+## Philips HUE config
+## Username, see http://www.developers.meethue.com/documentation/getting-started
+hueuser = "username"
+hueip = "192.168.1.10"
+
+## Lamp numbers. Use an empty list [] if you don't connect to Philips HUE system
+huelamps = [8, 12]
