@@ -10,30 +10,28 @@ import pytz
 import random
 import sqlite3
 from classes.qhue import Bridge
+
+
+## Manual start of the bluetooth speaker
 ## echo -e "connect A0:E9:DB:33:CA:82\nexit" | bluetoothctl
+## sleep 3
+## amixer -D pulse sset Master 60%
+## sleep 3
+## /etc/init.d/pibell restart
+
 
 ## some setup code
 from threading import Thread
 from datetime import date, datetime
-from flask import Flask
+from flask import Flask, render_template, redirect, url_for
 import re
 
+execfile("pibell_config.properties")
+
+local_tz = pytz.timezone(pytz_timezone)
+
 GPIO.setmode(GPIO.BCM)
-
-## Using pin 18 here
-GPIO.setup(18, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-logfile = '/var/log/pibell'
-dbfile = 'pibell.sql3'
-local_tz = pytz.timezone('Europe/Amsterdam')
-
-## We only like OGG, WAV or MP3 files.
-sounddir = "./sounds/"
-webserverdebug = False
-
-## Philips HUE config
-hueuser = "password"
-hueip = "192.168.51.7"
-huelamps = [8,12]
+GPIO.setup(pibell_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 pygame.mixer.init()
 app = Flask(__name__)
@@ -76,18 +74,21 @@ def insert_bell_moment(time):
 
 def get_bell_moments():
     conn = get_connection()
-    sql = "SELECT * FROM bell"
+    sql = "SELECT * FROM bell ORDER BY belldate DESC limit 20"
     c = conn.cursor()
     result = c.execute(sql)
     return result
 
+def get_sounds_from_folder(dir):
+    return [f for f in os.listdir(dir) if re.search(r'.+\.(wav|ogg|mp3)$', f)]
+
 def play_random_sound():
-    matches  = [sounddir + f for f in os.listdir(sounddir) if re.search(r'.+\.(wav|ogg|mp3)$', f)]
+    matches = get_sounds_from_folder(sounddir)
     if(len(matches)) > 0:
         logger.debug("Got " + str(len(matches))+ " sound bits in the sound directory")
         file = random.choice(matches)
         logger.warning("Now playing " + file)
-        pygame.mixer.music.load(file)
+        pygame.mixer.music.load(sounddir + file)
         pygame.mixer.music.play()
     else:
         logger.error("Could not find any music file in the " + sounddir + " directory.")
@@ -96,7 +97,7 @@ def go_ding():
     logger.warning('The bell is ringing!')
     insert_bell_moment(int(time.time()))
     play_random_sound()
-    for light in huelamps:
+    for light in huelamps: 
         b.lights[light].state(alert="lselect")
         time.sleep(0.5)
     while(pygame.mixer.music.get_busy()):
@@ -114,22 +115,28 @@ def ButtonListener():
         if input_state == False:
             go_ding();
 
+## Used in the template
+def is_today(date):
+    return date.date() == datetime.today().date()
 
 @app.route('/test')
 def start_now():
     go_ding()
     return '{"test": "ok"}'
 
+@app.route('/play/<sound>')
+def play_sound(sound):
+    pygame.mixer.music.load(sounddir + sound)
+    pygame.mixer.music.play()
+    return '{"sound": "ok"}'
+
 @app.route('/')
 def show_all():
     result = get_bell_moments()
-    showreturn = "{"
-    for row in result:
-        dt = datetime.fromtimestamp(row[0])
-        local_dt = dt.replace(tzinfo=pytz.utc).astimezone(local_tz)
-        showreturn = showreturn + str(local_dt) + ",\n"
-    showreturn = showreturn + "}"
-    return showreturn
+    sounds = get_sounds_from_folder(sounddir)
+    formattedresults = [datetime.fromtimestamp(x[0]).replace(tzinfo=pytz.utc).astimezone(local_tz) for x in result]
+    return render_template('index.html', is_today=is_today, ringtimes=formattedresults, sounds=sounds)
+
 
 ButtonThread = Thread(target = ButtonListener)
 ButtonThread.daemon = True
