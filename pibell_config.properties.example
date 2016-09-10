@@ -23,3 +23,9 @@ hueip = "192.168.1.10"
 
 ## Lamp numbers. Use an empty list [] if you don't connect to Philips HUE system
 huelamps = [8, 12]
+
+## How many seconds to fade the bell sound in?
+fade_in = 2
+
+## How many loops should the bell play?
+loops = 2

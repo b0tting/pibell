@@ -2,6 +2,7 @@
 
 import glob
 import pygame, time
+import json
 import RPi.GPIO as GPIO
 import logging
 import os
@@ -10,7 +11,6 @@ import pytz
 import random
 import sqlite3
 from classes.qhue import Bridge
-
 
 ## Manual start of the bluetooth speaker
 ## echo -e "connect A0:E9:DB:33:CA:82\nexit" | bluetoothctl
@@ -23,7 +23,7 @@ from classes.qhue import Bridge
 ## some setup code
 from threading import Thread
 from datetime import date, datetime
-from flask import Flask, render_template, redirect, url_for
+from flask import Flask, render_template, redirect, url_for,Response
 import re
 
 execfile("pibell_config.properties")
@@ -82,14 +82,16 @@ def get_bell_moments():
 def get_sounds_from_folder(dir):
     return [f for f in os.listdir(dir) if re.search(r'.+\.(wav|ogg|mp3)$', f)]
 
+channel = None
 def play_random_sound():
+    global channel
     matches = get_sounds_from_folder(sounddir)
     if(len(matches)) > 0:
         logger.debug("Got " + str(len(matches))+ " sound bits in the sound directory")
         file = random.choice(matches)
         logger.warning("Now playing " + file)
-        pygame.mixer.music.load(sounddir + file)
-        pygame.mixer.music.play()
+        cursound = pygame.mixer.Sound(sounddir + file)
+        channel = cursound.play(loops=loops -1,fade_ms=fade_in * 1000)
     else:
         logger.error("Could not find any music file in the " + sounddir + " directory.")
 
@@ -100,7 +102,7 @@ def go_ding():
     for light in huelamps: 
         b.lights[light].state(alert="lselect")
         time.sleep(0.5)
-    while(pygame.mixer.music.get_busy()):
+    while(channel.get_busy() and channel != None):
         time.sleep(1)
     for light in huelamps:
         b.lights[light].state(alert="none")
@@ -118,6 +120,12 @@ def ButtonListener():
 ## Used in the template
 def is_today(date):
     return date.date() == datetime.today().date()
+
+@app.route('/last_rings')
+def last_rings():
+    result = get_bell_moments()
+    formattedresults = [datetime.fromtimestamp(x[0]).replace(tzinfo=pytz.utc).astimezone(local_tz).strftime('%d %b %H:%M') for x in result]
+    return Response(json.dumps(formattedresults), mimetype='application/json')
 
 @app.route('/test')
 def start_now():
