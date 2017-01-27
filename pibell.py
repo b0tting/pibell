@@ -1,9 +1,17 @@
 #!/usr/bin/python
-
+import ConfigParser
 import glob
 import pygame, time
 import json
-import RPi.GPIO as GPIO
+
+import sys
+
+from pushbullet import Pushbullet
+
+try:
+    import RPi.GPIO as GPIO
+except:
+    fakerpi = True
 import logging
 import os
 from logging import handlers
@@ -26,12 +34,25 @@ from datetime import date, datetime
 from flask import Flask, render_template, redirect, url_for,Response
 import re
 
-execfile("pibell_config.properties")
 
-local_tz = pytz.timezone(pytz_timezone)
+configfile = "pibell_config.properties"
+config = ConfigParser.ConfigParser()
+try:
+    config.read(configfile)
+except:
+    print("Could not read " + configfile)
+    sys.exit();
+
+
+local_tz = pytz.timezone(config.get("pibell", "pytz_timezone"))
+huelamps = config.get("pibell", "huelamps").split(",")
+sounddir = config.get("pibell", "sounddir")
+
+pb = Pushbullet(config.get("pibell", "pushbullet")) if config.get("pibell", "pushbullet") else False
+
 
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(pibell_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(config.getint("pibell", "pibell_pin"), GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 pygame.mixer.init()
 app = Flask(__name__)
@@ -39,7 +60,7 @@ checked_table = False
 
 ## Setup logging
 logger = logging.getLogger(__name__)
-handler = handlers.RotatingFileHandler(logfile, maxBytes=500000, backupCount=3)
+handler = handlers.RotatingFileHandler(config.get("pibell", "logfile"), maxBytes=500000, backupCount=3)
 handler.setLevel(logging.INFO)
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(message)s')
@@ -49,7 +70,7 @@ logger.addHandler(handler)
 
 def get_connection():
     global checked_table;
-    conn = sqlite3.connect(dbfile)
+    conn = sqlite3.connect(config.get("pibell", "dbfile"))
     if not checked_table:
         sql = 'create table if not exists bell (belldate integer)'
         try:
@@ -61,8 +82,9 @@ def get_connection():
         checked_table = True
     return conn;
 
+
 def insert_bell_moment(time):
-    conn = get_connection();
+    conn = get_connection()
     sql = "INSERT INTO bell (belldate) VALUES (" + str(time)+ ");"
     try:
         c = conn.cursor()
@@ -88,16 +110,18 @@ def play_random_sound():
     matches = get_sounds_from_folder(sounddir)
     if(len(matches)) > 0:
         logger.debug("Got " + str(len(matches))+ " sound bits in the sound directory")
-        file = random.choice(matches)
-        logger.warning("Now playing " + file)
-        cursound = pygame.mixer.Sound(sounddir + file)
-        channel = cursound.play(loops=loops -1,fade_ms=fade_in * 1000)
+        soundfile = random.choice(matches)
+        logger.warning("Now playing " + soundfile)
+        cursound = pygame.mixer.Sound(sounddir + soundfile)
+        channel = cursound.play(loops=config.getint("pibell", "loops")-1,fade_ms=config.getint("pibell", "fade_in") * 1000)
     else:
         logger.error("Could not find any music file in the " + sounddir + " directory.")
 
 def go_ding():
     logger.warning('The bell is ringing!')
     insert_bell_moment(int(time.time()))
+    if pb:
+        push = pb.push_note("Ding! Ding!", "The doorbell is ringing.")
     play_random_sound()
     for light in huelamps: 
         b.lights[light].state(alert="lselect")
@@ -114,7 +138,7 @@ def ButtonListener():
     while True:
         GPIO.wait_for_edge(18, GPIO.FALLING)
         input_state = GPIO.input(18)
-        if input_state == False:
+        if not input_state:
             go_ding();
 
 ## Used in the template
@@ -150,10 +174,11 @@ ButtonThread = Thread(target = ButtonListener)
 ButtonThread.daemon = True
 ButtonThread.start()
 
-b = Bridge(hueip, hueuser)
+b = Bridge(config.get("pibell", "hueip"), config.get("pibell", "hueuser"))
+
 
 logger.info("Starting Webserver")
 app.config['PROPAGATE_EXCEPTIONS'] = True
-app.debug = webserverdebug
-app.run(host='0.0.0.0', port=81)
+app.debug = config.getboolean("pibell", "webserverdebug")
+app.run(host='0.0.0.0', port=config.getint("pibell", "webserverport"))
 
