@@ -1,11 +1,14 @@
 #!/usr/bin/python
 import ConfigParser
 import glob
+import traceback
+
 import pygame, time
 import json
 
 import sys
 
+from pushbullet import PushError
 from pushbullet import Pushbullet
 
 try:
@@ -121,7 +124,11 @@ def go_ding():
     logger.warning('The bell is ringing!')
     insert_bell_moment(int(time.time()))
     if pb:
-        push = pb.push_note("Ding! Ding!", "The doorbell is ringing.")
+        try:
+            push = pb.push_note("Ding! Ding!", "The doorbell is ringing.")
+        except PushError as e:
+            logger.error("Could not push message to pushbullet, reason: " + e.message)
+            logger.debug(traceback.format_exc())
     play_random_sound()
     for light in huelamps: 
         b.lights[light].state(alert="lselect")
